@@ -1,0 +1,495 @@
+Description:  This template deploys a VPC, with a pair of public and private subnets spread
+  across two Availability Zones. It deploys an internet gateway, with a default
+  route on the public subnets.It then creates RDS instance,launch configuration for autoscaling to map it to
+  the ALB's target group.
+
+Parameters:
+  EnvironmentName:
+    Description: An environment name that is prefixed to resource names
+    Type: String
+    Default: Aruncf
+  
+  KeyName:
+    Description: Key name for resource creation
+    Type: String
+    Default: amohandas@presisio.com@pscg-training key pair
+  
+  ImageId:
+    Description: AMI Id for ec2 instance creation
+    Type: String
+    Default : ami-032930428bf1abbff
+  
+  InstanceType:
+    Description: Instance Type for ec2 instance creation
+    Type: String
+    Default : t2.micro
+  
+  VpcCIDR:
+    Description: Please enter the IP range (CIDR notation) for this VPC
+    Type: String
+    Default: 89.0.0.0/16
+
+  PublicSubnet1CIDR:
+    Description: Please enter the IP range (CIDR notation) for the public subnet in the first Availability Zone
+    Type: String
+    Default: 89.0.1.0/24
+
+  PublicSubnet2CIDR:
+    Description: Please enter the IP range (CIDR notation) for the public subnet in the second Availability Zone
+    Type: String
+    Default: 89.0.2.0/24
+
+  PrivateSubnet1CIDR:
+    Description: Please enter the IP range (CIDR notation) for the private subnet in the first Availability Zone
+    Type: String
+    Default: 89.0.3.0/24
+
+  PrivateSubnet2CIDR:
+    Description: Please enter the IP range (CIDR notation) for the private subnet in the second Availability Zone
+    Type: String
+    Default: 89.0.4.0/24
+  
+  DBClass:
+    Description: Database instance class
+    Type: String
+    Default: db.t3.micro
+    
+  DBInstance:
+    Description: DB Instance for RDS
+    Type: String
+    Default: RDSdbinstance
+
+
+  DBPassword:
+    Description: DB Password
+    Type: String
+    Default: arunkumar  
+  
+  DBUser:
+    Description: DB User
+    Type: String
+    Default: arunkumar
+  
+  DBName:
+    Description: DB Name
+    Type: String
+    Default: arunkumarrdsdb
+
+  MultiAZDb:
+    Default: 'false'
+    Description: Create a Multi-AZ MySQL Amazon RDS database instance
+    Type: String
+    AllowedValues:
+      - 'true'
+      - 'false'
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Ref EnvironmentName
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Ref EnvironmentName
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: us-east-1a
+      CidrBlock: !Ref PublicSubnet1CIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Public Subnet (AZ1)
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: us-east-1b
+      CidrBlock: !Ref PublicSubnet2CIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Public Subnet (AZ2)
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: us-east-1a
+      CidrBlock: !Ref PrivateSubnet1CIDR
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Private Subnet (AZ1)
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: us-east-1b
+      CidrBlock: !Ref PrivateSubnet2CIDR
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Private Subnet (AZ2)
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Public Routes
+
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet2
+        
+  Ec2SecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Enable HTTP and SSH 
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      VpcId: !Ref VPC
+  
+  RDSSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Private subnet group for rds instance
+      DBSubnetGroupName: RDSSubnetGroup
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      Tags:
+        - Key: Name
+          Value: Arun CF SubnetGroup
+  
+  DBEC2SecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Access rds database
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '3306'
+          ToPort: '3306'
+          CidrIp: 0.0.0.0/0 
+      SecurityGroupEgress: 
+        - CidrIp: 0.0.0.0/0
+          FromPort: 0
+          IpProtocol: -1
+          ToPort: 0
+      VpcId: !Ref VPC
+    
+  RDSdbinstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBName: !Ref DBName
+      AllocatedStorage: '5'
+      # storage
+      DBInstanceClass: !Ref DBClass
+      # dbclass
+      Engine: MySQL
+      MultiAZ: !Ref MultiAZDb
+      #MultiAZDatabase
+      DBSubnetGroupName: !Ref RDSSubnetGroup
+      MasterUsername: !Ref DBUser
+      MasterUserPassword: !Ref DBPassword
+      VPCSecurityGroups:
+        - !GetAtt 
+          - DBEC2SecurityGroup
+          - GroupId
+
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: security group for ALB
+      GroupName: ALBSecurityGroup
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '80'
+        ToPort: '80'
+        CidrIp: '0.0.0.0/0'
+      - IpProtocol: tcp
+        FromPort: '22'
+        ToPort: '22'
+        CidrIp: '0.0.0.0/0'
+      VpcId:
+        Ref: VPC
+
+  ALB:
+        Type: "AWS::ElasticLoadBalancingV2::LoadBalancer"
+        Properties:
+            Name: "arunkumaralb"
+            Scheme: "internet-facing"
+            Type: "application"
+            # DependsOn: [ PublicSubnet1RouteTableAssociation, PublicSubnet2RouteTableAssociation]
+            Subnets: 
+              - !Ref PublicSubnet1
+              - !Ref PublicSubnet2
+            SecurityGroups: 
+              - !Ref ALBSecurityGroup
+
+  ALBListener:
+    Type: 'AWS::ElasticLoadBalancingV2::Listener'
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+      LoadBalancerArn: !Ref ALB
+      Port: '80'
+      Protocol: HTTP
+
+  ALBTargetGroup:
+    Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
+    DependsOn: [ LaunchConfig]
+    Properties:
+      HealthCheckPath: /wordpress/wp-admin/install.php
+      HealthCheckIntervalSeconds: 10
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      Port: 80
+      Protocol: HTTP
+      UnhealthyThresholdCount: 5
+      VpcId: !Ref VPC
+      TargetGroupAttributes:
+        - Key: stickiness.enabled
+          Value: 'true'
+        - Key: stickiness.type
+          Value: lb_cookie
+        - Key: stickiness.lb_cookie.duration_seconds
+          Value: '30'
+    
+  LaunchConfig:
+    Type: 'AWS::AutoScaling::LaunchConfiguration'
+    Metadata:
+      'AWS::CloudFormation::Init':
+        configSets:
+          wordpress_install:
+            - install_cfn
+            - install_wordpress
+        install_cfn:
+          files:
+            /etc/cfn/cfn-hup.conf:
+              content: !Join 
+                - ''
+                - - |
+                    [main]
+                  - stack=
+                  - !Ref 'AWS::StackId'
+                  - |+
+
+                  - region=
+                  - !Ref 'AWS::Region'
+                  - |+
+
+              mode: '000400'
+              owner: root
+              group: root
+            /etc/cfn/hooks.d/cfn-auto-reloader.conf:
+              content: !Join 
+                - ''
+                - - |
+                    [cfn-auto-reloader-hook]
+                  - |
+                    triggers=post.update
+                  - >
+                    path=Resources.LaunchConfig.Metadata.AWS::CloudFormation::Init
+                  - 'action=/opt/aws/bin/cfn-init -v '
+                  - '         --stack '
+                  - !Ref 'AWS::StackName'
+                  - '         --resource LaunchConfig '
+                  - '         --configsets wordpress_install '
+                  - '         --region '
+                  - !Ref 'AWS::Region'
+                  - |+
+
+              mode: '000400'
+              owner: root
+              group: root
+          services:
+            sysvinit:
+              cfn-hup:
+                enabled: 'true'
+                ensureRunning: 'true'
+                files:
+                  - /etc/cfn/cfn-hup.conf
+                  - /etc/cfn/hooks.d/cfn-auto-reloader.conf
+        install_wordpress:
+          packages:
+            yum:
+              php73: []
+              php73-mysqlnd: []
+              mysql57: []
+              httpd24: []
+          sources:
+            /var/www/html: 'http://wordpress.org/latest.tar.gz'
+          files:
+            /tmp/create-wp-config:
+              content: !Join 
+                - ''
+                - - |
+                    #!/bin/bash
+                  - >
+                    cp /var/www/html/wordpress/wp-config-sample.php
+                    /var/www/html/wordpress/wp-config.php
+                  - sed -i "s/'database_name_here'/'
+                  - !Ref DBName
+                  - |
+                    '/g" wp-config.php
+                  - sed -i "s/'username_here'/'
+                  - !Ref DBUser
+                  - |
+                    '/g" wp-config.php
+                  - sed -i "s/'password_here'/'
+                  - !Ref DBPassword
+                  - |
+                    '/g" wp-config.php
+                  - sed -i "s/'localhost'/'
+                  - !GetAtt 
+                    - RDSdbinstance
+                    - Endpoint.Address
+                  - |
+                    '/g" wp-config.php
+              mode: '000500'
+              owner: root
+              group: root
+          commands:
+            01_configure_wordpress:
+              command: /tmp/create-wp-config
+              cwd: /var/www/html/wordpress
+          services:
+            sysvinit:
+              httpd:
+                enabled: 'true'
+                ensureRunning: 'true'
+    
+    Properties:
+      ImageId: !Ref ImageId
+      KeyName: !Ref KeyName
+      SecurityGroups:
+        - !Ref Ec2SecurityGroup
+      InstanceType: !Ref InstanceType
+      UserData: !Base64 
+        'Fn::Join':
+          - ''
+          - - |
+              #!/bin/bash -xe
+            - |
+              yum update -y aws-cfn-bootstrap
+            - '/opt/aws/bin/cfn-init -v '
+            - '         --stack '
+            - !Ref 'AWS::StackName'
+            - '         --resource LaunchConfig '
+            - '         --configsets wordpress_install '
+            - '         --region '
+            - !Ref 'AWS::Region'
+            - |+
+
+            - '/opt/aws/bin/cfn-signal -e $? '
+            - '         --stack '
+            - !Ref 'AWS::StackName'
+            - '         --resource WebServerGroup '
+            - '         --region '
+            - !Ref 'AWS::Region'
+            - |+
+
+  
+  WebASGroup:
+    Type: 'AWS::AutoScaling::AutoScalingGroup'
+    Properties:
+      VPCZoneIdentifier:
+        - Ref: PublicSubnet1
+        - Ref: PublicSubnet2
+      LaunchConfigurationName: !Ref LaunchConfig
+      MinSize: '1'
+      MaxSize: '3'
+      DesiredCapacity: 2
+      TargetGroupARNs:
+        - !Ref ALBTargetGroup
+    # CreationPolicy:
+    #   ResourceSignal:
+    #     Timeout: PT15M
+    # UpdatePolicy:
+    #   AutoScalingRollingUpdate:
+    #     MinInstancesInService: '1'
+    #     MaxBatchSize: '1'
+    #     PauseTime: PT15M
+    #     WaitOnResourceSignals: 'true'
+  
+Outputs:
+  VPC:
+    Description: A reference to the created VPC
+    Value: !Ref VPC
+
+  PublicSubnet1:
+    Description: A reference to the public subnet in the 1st Availability Zone
+    Value: !Ref PublicSubnet1
+
+  PublicSubnet2:
+    Description: A reference to the public subnet in the 2nd Availability Zone
+    Value: !Ref PublicSubnet2
+
+  PrivateSubnet1:
+    Description: A reference to the private subnet in the 1st Availability Zone
+    Value: !Ref PrivateSubnet1
+
+  PrivateSubnet2:
+    Description: A reference to the private subnet in the 2nd Availability Zone
+    Value: !Ref PrivateSubnet2
+
+  WebsiteURL:
+    Value: !Join 
+      - ''
+      - - 'http://'
+        - !GetAtt 
+          - ALB
+          - DNSName
+        - /wordpress
+    Description: WordPress Website
+
+
+
+    #vpc subnets-vpcid,subnetid
+    #launch configuration,asg,alb
+    #rds rds security grp
